@@ -391,9 +391,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       <td className="py-3.5 px-4 font-bold text-slate-900">{sub.testTitle}</td>
                       <td className="py-3.5 px-4 uppercase text-[10px] font-bold text-slate-600">{sub.module}</td>
                       <td className="py-3.5 px-4 font-extrabold text-amber-600">
-                        {sub.teacherAdjustedBand ? `Band ${sub.teacherAdjustedBand}` :
-                         sub.rawBandScore ? `Band ${sub.rawBandScore}` :
-                         sub.aiReport ? `Band ${sub.aiReport.overallBand}` : 'Pending'}
+                        {typeof sub.teacherAdjustedBand === 'number' ? `Band ${sub.teacherAdjustedBand}` :
+                         typeof sub.rawBandScore === 'number' ? `Band ${sub.rawBandScore}` :
+                         typeof sub.aiReport?.overallBand === 'number' ? `Band ${sub.aiReport.overallBand}` : 'Pending'}
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">{sub.submittedAt}</td>
                       <td className="py-3.5 px-4">

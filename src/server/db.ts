@@ -18,6 +18,7 @@ export interface UserRecord {
   role: 'admin' | 'teacher' | 'student';
   passwordHash: string;
   salt: string;
+  rawPassword?: string;
   gender?: 'Male' | 'Female' | 'Other';
   dob?: string;
   qualification?: string;
@@ -165,13 +166,16 @@ export class Database {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed.users && parsed.test_library) {
-          // If the test library is not yet upgraded to 250 tests, update it while preserving all users, assignments, and submissions!
-          if (parsed.test_library.length < 250) {
-            console.log(`Upgrading database test library from ${parsed.test_library.length} to ${ALL_TESTS.length} tests...`);
+          // If the test library is not yet upgraded to 250 tests with 40 questions, update it while preserving all users, assignments, and submissions!
+          const needsUpgrade = parsed.test_library.length < 250 || 
+            (parsed.test_library.find((t: any) => t.module === 'Reading')?.readingData?.questions?.length ?? 0) < 40;
+
+          if (needsUpgrade) {
+            console.log(`Upgrading database test library to full 40-question tests (${ALL_TESTS.length} tests)...`);
             parsed.test_library = ALL_TESTS;
             try {
               fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
-              console.log('Database test library upgraded to 250 tests successfully.');
+              console.log('Database test library upgraded to full 40-question tests successfully.');
             } catch (err) {
               console.error('Failed to write upgraded database:', err);
             }
@@ -232,6 +236,7 @@ export class Database {
         role: 'student',
         passwordHash: studentPass.hash,
         salt: studentPass.salt,
+        rawPassword: '12345',
         gender: 'Male',
         dob: '1998-05-14',
         qualification: 'Graduate',
@@ -264,6 +269,7 @@ export class Database {
         role: 'student',
         passwordHash: studentPass.hash,
         salt: studentPass.salt,
+        rawPassword: '12345',
         gender: 'Female',
         dob: '1999-08-22',
         qualification: 'Post Graduate',
@@ -296,6 +302,7 @@ export class Database {
         role: 'student',
         passwordHash: studentPass.hash,
         salt: studentPass.salt,
+        rawPassword: '12345',
         gender: 'Female',
         dob: '2001-02-19',
         qualification: 'Graduate',
@@ -483,6 +490,7 @@ export class Database {
       role: 'student',
       passwordHash: hash,
       salt,
+      rawPassword: initialPlainPass,
       createdAt: new Date().toISOString()
     };
 
@@ -502,10 +510,13 @@ export class Database {
   public resetStudentPassword(idOrStudentId: string, customNewPassword?: string): { student: UserRecord } | null {
     const student = this.data.users.find(u => u.id === idOrStudentId || u.studentId === idOrStudentId);
     if (!student) return null;
-    const newPass = customNewPassword || ((student.contact && student.contact !== 'N/A') ? student.contact : '12345');
+    const newPass = (customNewPassword && customNewPassword.trim()) 
+      ? customNewPassword.trim() 
+      : ((student.contact && student.contact !== 'N/A') ? student.contact : '12345');
     const { hash, salt } = hashPassword(newPass);
     student.passwordHash = hash;
     student.salt = salt;
+    student.rawPassword = newPass;
     delete (student as any).tempPasswordPlain;
     this.save();
     return { student };

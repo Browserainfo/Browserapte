@@ -93,7 +93,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const totalFeesCollected = students.reduce((acc, curr) => acc + (Number(curr.fee) || 0) - (Number(curr.discount) || 0), 0);
 
   return (
-    <div className="min-h-screen bg-[#151b26] text-white flex flex-col font-sans select-none">
+    <div className="min-h-screen bg-[#151b26] text-white flex flex-col font-sans">
       
       {/* Top Header matching Screenshot 2 */}
       <header className="bg-[#1c2431] border-b border-slate-700/80 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow sticky top-0 z-30">

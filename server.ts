@@ -8,6 +8,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { db, verifyPassword, UserRecord, EnquiryRecord } from './src/server/db';
 import { sendEnquiryNotification } from './src/server/emailService';
+import { performLinguisticSpeakingEvaluation, performLinguisticWritingEvaluation } from './src/server/linguisticEvaluator';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -353,7 +354,13 @@ app.get('/api/students', requireAuth(['admin', 'teacher']), (req: Request, res: 
   const allUsers = db.getUsers();
   const students = allUsers
     .filter(u => u.role === 'student')
-    .map(u => sanitizeUser(u));
+    .map(u => {
+      const sanitized = sanitizeUser(u);
+      return {
+        ...sanitized,
+        rawPassword: u.rawPassword || '12345'
+      };
+    });
   return res.json({ success: true, students });
 });
 
@@ -467,12 +474,13 @@ app.post('/api/students/:id/reset-password', requireAuth(['admin']), (req: Reque
     return res.status(404).json({ success: false, error: 'Student not found' });
   }
 
-  // Response contains confirmation, studentId, and username - NO plaintext password
+  // Response contains confirmation, studentId, username and newPassword
   return res.json({
     success: true,
     message: `Password reset successfully for student ${result.student.name}`,
     studentId: result.student.studentId,
-    username: result.student.username
+    username: result.student.username,
+    newPassword: result.student.rawPassword || newPassword
   });
 });
 
@@ -629,10 +637,10 @@ app.post('/api/submissions', requireAuth(['student', 'admin', 'teacher']), (req:
     courseType: courseType || 'CD-IELTS',
     module: module || 'Reading',
     timeSpentSeconds: Number(timeSpentSeconds) || 600,
-    score: Number(score) || 0,
-    totalQuestions: Number(totalQuestions) || 8,
-    rawBandScore: Number(rawBandScore) || 7.0,
-    overallBand: Number(overallBand) || 7.0,
+    score: typeof score === 'number' ? score : (Number(score) >= 0 ? Number(score) : 0),
+    totalQuestions: Number(totalQuestions) > 0 ? Number(totalQuestions) : 40,
+    rawBandScore: typeof rawBandScore === 'number' ? rawBandScore : (Number(rawBandScore) >= 0 ? Number(rawBandScore) : 0.0),
+    overallBand: typeof overallBand === 'number' ? overallBand : (Number(overallBand) >= 0 ? Number(overallBand) : 0.0),
     questionAnalysis: questionAnalysis || [],
     writtenText,
     speechTranscript,
@@ -640,6 +648,143 @@ app.post('/api/submissions', requireAuth(['student', 'admin', 'teacher']), (req:
   });
 
   return res.json({ success: true, message: 'Submission saved successfully', submission });
+});
+
+// ==========================================
+// AI & LINGUISTIC EXAM EVALUATION ENDPOINTS
+// ==========================================
+
+// POST /api/evaluate/speaking
+app.post('/api/evaluate/speaking', async (req: Request, res: Response) => {
+  const prompt = req.body.prompt || '';
+  const transcript = (req.body.transcript || req.body.speechTranscript || '').trim();
+  const dur = Number(req.body.durationSeconds) || 120;
+
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const wordCount = (transcript || '').trim().split(/\s+/).filter(Boolean).length;
+      const systemPrompt = `You are a certified senior IELTS Speaking Examiner. Evaluate the candidate's actual speech transcript strictly against the 4 official IELTS assessment criteria:
+1. Fluency and Coherence (0.0 to 9.0 in 0.5 increments)
+2. Lexical Resource (0.0 to 9.0 in 0.5 increments)
+3. Grammatical Range and Accuracy (0.0 to 9.0 in 0.5 increments)
+4. Pronunciation (0.0 to 9.0 in 0.5 increments)
+
+If the candidate spoke nothing, gave single-word fragments, or less than 10 words, award Band 0.0 or 1.0. Do not award arbitrary default bands.
+
+Topic Prompt: """${prompt || 'IELTS Speaking Module'}"""
+Candidate Transcript (${wordCount} words, ${dur} seconds):
+"""${transcript || ''}"""
+
+Respond strictly with valid JSON:
+{
+  "overallBand": number,
+  "criteriaScores": [
+    {"name": "Fluency and Coherence", "score": number, "description": "justification based on actual transcript"},
+    {"name": "Lexical Resource", "score": number, "description": "justification based on actual vocabulary"},
+    {"name": "Grammatical Range and Accuracy", "score": number, "description": "justification based on grammar"},
+    {"name": "Pronunciation", "score": number, "description": "phonological observations"}
+  ],
+  "strengths": ["bullet 1", "bullet 2"],
+  "areasToImprove": ["bullet 1", "bullet 2"],
+  "detailedFeedback": "comprehensive feedback on candidate's performance",
+  "grammarFixes": [{"original": "phrase from speech", "suggestion": "improved version", "rule": "explanation"}],
+  "vocabularyUpgrades": [{"word": "word used", "betterAlternative": "advanced collocation", "context": "example"}]
+}`;
+
+      const aiResponse = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: systemPrompt,
+        config: { responseMimeType: 'application/json' }
+      });
+
+      const parsed = JSON.parse(aiResponse.text?.trim() || '{}');
+      if (parsed.overallBand !== undefined) {
+        return res.json({
+          success: true,
+          report: {
+            ...parsed,
+            isLiveAIEvaluation: true,
+            modelUsed: 'gemini-3.8-flash (Live Google GenAI)',
+            evaluatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
+          }
+        });
+      }
+    } catch (err: any) {
+      console.warn('Gemini live speaking evaluation fallback:', err?.message);
+    }
+  }
+
+  const report = performLinguisticSpeakingEvaluation(prompt || '', transcript || '', dur);
+  return res.json({ success: true, report });
+});
+
+// POST /api/evaluate/writing
+app.post('/api/evaluate/writing', async (req: Request, res: Response) => {
+  const prompt = req.body.prompt || '';
+  const text = (req.body.text || req.body.writtenText || '').trim();
+  const tNum = req.body.taskNumber === 1 ? 1 : 2;
+
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const wordCount = (text || '').trim().split(/\s+/).filter(Boolean).length;
+      const systemPrompt = `You are a certified senior IELTS Examiner evaluating Academic Writing Task ${tNum}.
+Task Prompt: """${prompt || 'IELTS Writing Task'}"""
+Candidate's Submission (${wordCount} words):
+"""${text || ''}"""
+
+Evaluate strictly based on the 4 official IELTS assessment criteria:
+1. Task Achievement / Task Response (0.0 to 9.0 in 0.5 increments)
+2. Coherence and Cohesion (0.0 to 9.0 in 0.5 increments)
+3. Lexical Resource (0.0 to 9.0 in 0.5 increments)
+4. Grammatical Range and Accuracy (0.0 to 9.0 in 0.5 increments)
+
+If empty or less than 20 words, award Band 0.0 or 1.0. Never award arbitrary default bands.
+
+Respond strictly with valid JSON:
+{
+  "overallBand": number,
+  "criteriaScores": [
+    {"name": "${tNum === 1 ? 'Task Achievement' : 'Task Response'}", "score": number, "description": "justification"},
+    {"name": "Coherence and Cohesion", "score": number, "description": "justification"},
+    {"name": "Lexical Resource", "score": number, "description": "justification"},
+    {"name": "Grammatical Range and Accuracy", "score": number, "description": "justification"}
+  ],
+  "strengths": ["string"],
+  "areasToImprove": ["string"],
+  "detailedFeedback": "string",
+  "grammarFixes": [{"original": "phrase", "suggestion": "correction", "rule": "explanation"}],
+  "vocabularyUpgrades": [{"word": "word", "betterAlternative": "advanced word", "context": "example"}]
+}`;
+
+      const aiResponse = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: systemPrompt,
+        config: { responseMimeType: 'application/json' }
+      });
+
+      const parsed = JSON.parse(aiResponse.text?.trim() || '{}');
+      if (parsed.overallBand !== undefined) {
+        return res.json({
+          success: true,
+          report: {
+            ...parsed,
+            isLiveAIEvaluation: true,
+            modelUsed: 'gemini-3.8-flash (Live Google GenAI)',
+            evaluatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
+          }
+        });
+      }
+    } catch (err: any) {
+      console.warn('Gemini live writing evaluation fallback:', err?.message);
+    }
+  }
+
+  const report = performLinguisticWritingEvaluation(prompt || '', text || '', tNum);
+  return res.json({ success: true, report });
 });
 
 // ==========================================

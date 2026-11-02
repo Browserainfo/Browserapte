@@ -49,6 +49,14 @@ export interface QuestionItem {
   isFlagged?: boolean;
 }
 
+export interface ReadingPassage {
+  passageNumber: 1 | 2 | 3;
+  title: string;
+  subtitle?: string;
+  text: string;
+  questions: QuestionItem[];
+}
+
 export interface ReadingTest {
   id: string;
   title: string;
@@ -56,6 +64,7 @@ export interface ReadingTest {
   passageTitle: string;
   passageSubtitle?: string;
   passageText: string;
+  passages?: ReadingPassage[];
   durationMinutes: number;
   questions: QuestionItem[];
 }
@@ -213,6 +222,7 @@ export interface TestSubmission {
   totalQuestions?: number;
   correctCount?: number;
   rawBandScore?: number;
+  overallBand?: number;
   questionAnalysis?: {
     questionNumber: number;
     userAnswer: string;

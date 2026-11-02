@@ -18,6 +18,7 @@ import {
   FileText
 } from 'lucide-react';
 import { TestSubmission } from '../../types';
+import { getIeltsBandDescriptor } from '../../utils/ieltsScoring';
 
 interface MistakeAnalysisModalProps {
   submission: TestSubmission | null;
@@ -41,7 +42,9 @@ export const MistakeAnalysisModal: React.FC<MistakeAnalysisModalProps> = ({
   const displayBand = submission.teacherAdjustedBand ?? 
     submission.rawBandScore ?? 
     submission.aiReport?.overallBand ?? 
-    7.0;
+    0.0;
+
+  const descriptor = getIeltsBandDescriptor(displayBand);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
@@ -83,7 +86,7 @@ export const MistakeAnalysisModal: React.FC<MistakeAnalysisModalProps> = ({
                 <span className="text-xs text-slate-400 font-normal">/ 9.0</span>
               </div>
               <div className="text-[10px] text-emerald-400 font-medium mt-1">
-                {displayBand >= 7.5 ? 'Good User Plus (C1)' : displayBand >= 6.5 ? 'Competent User (B2)' : 'Modest User (B1)'}
+                {descriptor.label} ({descriptor.cefr})
               </div>
             </div>
 

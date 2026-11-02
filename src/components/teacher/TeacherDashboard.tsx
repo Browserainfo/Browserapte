@@ -53,7 +53,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const handleOpenReview = (sub: TestSubmission) => {
     setSelectedSubForReview(sub);
-    setAdjustedBand(sub.teacherAdjustedBand ?? sub.aiReport?.overallBand ?? sub.rawBandScore ?? 7.0);
+    const initialBand = sub.teacherAdjustedBand ?? sub.rawBandScore ?? sub.aiReport?.overallBand ?? 6.5;
+    setAdjustedBand(initialBand);
     setTeacherNotes(sub.teacherFeedbackNotes || 'Commendable effort. Review the grammar upgrades and maintain structured paragraphing.');
   };
 
@@ -241,9 +242,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                     <div className="text-right">
                       <span className="text-xs font-extrabold text-amber-600">
-                        {sub.teacherAdjustedBand ? `Band ${sub.teacherAdjustedBand}` :
-                         sub.rawBandScore ? `Band ${sub.rawBandScore}` :
-                         sub.aiReport ? `Band ${sub.aiReport.overallBand}` : 'Pending'}
+                        {typeof sub.teacherAdjustedBand === 'number' ? `Band ${sub.teacherAdjustedBand}` :
+                         typeof sub.rawBandScore === 'number' ? `Band ${sub.rawBandScore}` :
+                         typeof sub.aiReport?.overallBand === 'number' ? `Band ${sub.aiReport.overallBand}` : 'Pending'}
                       </span>
                       <div className="text-[10px] text-slate-400 mt-0.5 font-mono">{sub.submittedAt.split(' ')[0]}</div>
                     </div>

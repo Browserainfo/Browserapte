@@ -829,11 +829,22 @@ export const DataService = {
 
   getReadingTests: (): ReadingTest[] => {
     const list = READING_TESTS.map(t => t.readingData!).filter(Boolean);
-    return getStored<ReadingTest[]>('reading_tests', list.length > 0 ? list : SEED_READING_TESTS);
+    const stored = getStored<ReadingTest[]>('reading_tests', list);
+    if (stored && stored[0] && (stored[0].questions?.length ?? 0) < 40) {
+      setStored('reading_tests', list);
+      return list;
+    }
+    return stored && stored.length > 0 ? stored : list;
   },
   getListeningTests: (): ListeningTest[] => {
     const list = LISTENING_TESTS.map(t => t.listeningData!).filter(Boolean);
-    return getStored<ListeningTest[]>('listening_tests', list.length > 0 ? list : SEED_LISTENING_TESTS);
+    const stored = getStored<ListeningTest[]>('listening_tests', list);
+    const totalQ = stored?.[0]?.sections?.reduce((sum, s) => sum + (s.questions?.length || 0), 0) ?? 0;
+    if (stored && stored[0] && (totalQ < 40 || (stored[0].sections?.length ?? 0) < 4)) {
+      setStored('listening_tests', list);
+      return list;
+    }
+    return stored && stored.length > 0 ? stored : list;
   },
   getWritingTasks: (): WritingTask[] => {
     const list = WRITING_TESTS.map(t => t.writingData!).filter(Boolean);
